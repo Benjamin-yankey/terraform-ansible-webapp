@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = '/api';
 
 function App() {
   const [tasks, setTasks] = useState([]);
@@ -32,7 +32,7 @@ function App() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [tasksRes, categoriesRes, statsRes] = await Promise.all([
@@ -45,20 +45,28 @@ function App() {
       const categoriesData = await categoriesRes.json();
       const statsData = await statsRes.json();
 
+      console.log('Fetched tasks:', tasksData);
+      console.log('Tasks array:', tasksData.tasks);
+      
       setTasks(tasksData.tasks || []);
       setCategories(categoriesData.categories || []);
       setStats(statsData);
       setError(null);
     } catch (err) {
-      setError('Failed to fetch data. Make sure the API is running.');
+      setError('Failed to fetch data. Make sure the backend API is running.');
       console.error('Error fetching data:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!formData.title.trim()) {
+      setError('Task title is required');
+      return;
+    }
     
     try {
       const url = editingTask 
@@ -74,8 +82,11 @@ function App() {
       });
 
       if (response.ok) {
-        fetchData();
+        await fetchData();
         resetForm();
+        setError(null);
+      } else {
+        throw new Error('Failed to save task');
       }
     } catch (err) {
       setError('Failed to save task');
@@ -92,7 +103,10 @@ function App() {
       });
 
       if (response.ok) {
-        fetchData();
+        await fetchData();
+        setError(null);
+      } else {
+        throw new Error('Failed to delete task');
       }
     } catch (err) {
       setError('Failed to delete task');
@@ -109,7 +123,10 @@ function App() {
       });
 
       if (response.ok) {
-        fetchData();
+        await fetchData();
+        setError(null);
+      } else {
+        throw new Error('Failed to update task');
       }
     } catch (err) {
       setError('Failed to update task');
@@ -142,12 +159,16 @@ function App() {
   };
 
   const filteredTasks = tasks.filter(task => {
-    if (filterCategory !== 'all' && task.category !== filterCategory) return false;
-    if (filterPriority !== 'all' && task.priority !== filterPriority) return false;
-    if (filterCompleted === 'completed' && !task.completed) return false;
-    if (filterCompleted === 'pending' && task.completed) return false;
-    if (searchTerm && !task.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    return true;
+    const matchesCategory = filterCategory === 'all' || task.category === filterCategory;
+    const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
+    const matchesCompleted = filterCompleted === 'all' || 
+      (filterCompleted === 'completed' && task.completed) ||
+      (filterCompleted === 'pending' && !task.completed);
+    const matchesSearch = !searchTerm || 
+      task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (task.description && task.description.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    return matchesCategory && matchesPriority && matchesCompleted && matchesSearch;
   });
 
   const getPriorityColor = (priority) => {
@@ -210,7 +231,7 @@ function App() {
             className="btn btn-primary"
             onClick={() => setShowForm(!showForm)}
           >
-            {showForm ? 'Cancel' : '+ Add Task'}
+            {showForm ? '✕ Cancel' : '+ Add Task'}
           </button>
           
           <input
@@ -227,7 +248,9 @@ function App() {
           <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
             <option value="all">All Categories</option>
             {categories.map(cat => (
-              <option key={cat.id} value={cat.name.toLowerCase()}>{cat.name}</option>
+              <option key={cat.id} value={cat.name.toLowerCase()}>
+                {cat.name}
+              </option>
             ))}
           </select>
 
@@ -279,7 +302,9 @@ function App() {
                   onChange={(e) => setFormData({...formData, category: e.target.value})}
                 >
                   {categories.map(cat => (
-                    <option key={cat.id} value={cat.name.toLowerCase()}>{cat.name}</option>
+                    <option key={cat.id} value={cat.name.toLowerCase()}>
+                      {cat.name}
+                    </option>
                   ))}
                 </select>
 
@@ -338,8 +363,20 @@ function App() {
                     </span>
                   )}
                   <div className="task-actions">
-                    <button onClick={() => handleEdit(task)} className="btn-icon">✏️</button>
-                    <button onClick={() => handleDelete(task.id)} className="btn-icon">🗑️</button>
+                    <button 
+                      onClick={() => handleEdit(task)} 
+                      className="btn-icon"
+                      title="Edit task"
+                    >
+                      ✏️
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(task.id)} 
+                      className="btn-icon delete"
+                      title="Delete task"
+                    >
+                      🗑️
+                    </button>
                   </div>
                 </div>
               </div>

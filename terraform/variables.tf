@@ -51,7 +51,7 @@ variable "instance_type" {
 variable "root_volume_size" {
   description = "Size of root volume in GB"
   type        = number
-  default     = 8
+  default     = 30
 
   validation {
     condition     = var.root_volume_size >= 8 && var.root_volume_size <= 100

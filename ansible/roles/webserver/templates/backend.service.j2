@@ -7,18 +7,11 @@ Type=simple
 User=ec2-user
 Group=ec2-user
 WorkingDirectory=/opt/taskmanager/backend
-Environment="PATH=/opt/taskmanager/backend/venv/bin"
+Environment="PATH=/opt/taskmanager/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="FLASK_APP=app.py"
 Environment="FLASK_ENV=production"
-ExecStart=/opt/taskmanager/backend/venv/bin/gunicorn \
-    --bind 0.0.0.0:5000 \
-    --workers 4 \
-    --timeout 120 \
-    --access-logfile /opt/taskmanager/logs/access.log \
-    --error-logfile /opt/taskmanager/logs/error.log \
-    --log-level info \
-    app:app
-
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/opt/taskmanager/backend/venv/bin/python /opt/taskmanager/backend/app.py
 Restart=always
 RestartSec=10
 StandardOutput=append:/opt/taskmanager/logs/backend.log

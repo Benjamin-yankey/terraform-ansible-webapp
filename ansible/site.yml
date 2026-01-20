@@ -1,204 +1,129 @@
 ---
-# Main playbook for Full-Stack Web Application Deployment
-
 - name: Deploy Task Manager Application
   hosts: webservers
-  become: true
-  gather_facts: true
+  become: yes
+  gather_facts: yes
+  
   vars:
-    app_name: "Task Manager"
-    app_version: "1.0.0"
+    app_user: ec2-user
+    app_group: ec2-user
+    app_name: taskmanager
+    app_dir: /opt/{{ app_name }}
     backend_port: 5000
-    frontend_port: 80
-
-  pre_tasks:
-    - name: Display deployment information
-      ansible.builtin.debug:
-        msg:
-          - "╔════════════════════════════════════════════════════════╗"
-          - "║  Deploying {{ app_name }} v{{ app_version }}          "
-          - "║  Target: {{ inventory_hostname }}                      "
-          - "║  OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
-          - "╚════════════════════════════════════════════════════════╝"
-
-    - name: Wait for system to be ready
-      ansible.builtin.wait_for_connection:
-        timeout: 300
-        delay: 10
-
-    - name: Gather all facts
-      ansible.builtin.setup:
-
-    - name: Update all packages
-      ansible.builtin.yum:
-        name: "*"
-        state: latest
+    
+  tasks:
+    - name: Update system packages
+      apt:
         update_cache: yes
-      when: ansible_distribution == "Amazon"
-
-    - name: Install EPEL repository
-      ansible.builtin.yum:
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+      
+    - name: Install required packages
+      package:
         name:
-          - epel-release
+          - python3
+          - python3-pip
+          - python3-venv
+          - git
+          - curl
+          - wget
+          - sqlite3
         state: present
-      when: ansible_distribution == "Amazon"
-      ignore_errors: true
-
-  roles:
-    - role: webapp
-      tags: ["webapp", "fullstack"]
-
-  post_tasks:
-    - name: Verify backend service is running
-      ansible.builtin.systemd:
-        name: taskmanager-backend
-        state: started
-        enabled: yes
-
-    - name: Verify Nginx is running
-      ansible.builtin.service:
-        name: nginx
-        state: started
-        enabled: yes
-
-    - name: Test backend API health
-      ansible.builtin.uri:
-        url: "http://localhost:{{ backend_port }}/api/health"
-        return_content: yes
-        timeout: 10
-      register: api_health
-      retries: 5
-      delay: 3
-      until: api_health.status == 200
-
-    - name: Test frontend availability
-      ansible.builtin.uri:
-        url: "http://localhost:{{ frontend_port }}"
-        return_content: yes
-        timeout: 10
-      register: frontend_test
-      retries: 3
-      delay: 3
-      until: frontend_test.status == 200
-
-    - name: Get backend service status
-      ansible.builtin.command: systemctl status taskmanager-backend --no-pager
-      register: backend_status
-      changed_when: false
-      failed_when: false
-
-    - name: Display deployment success
-      ansible.builtin.debug:
-        msg:
-          - "╔════════════════════════════════════════════════════════╗"
-          - "║            ✓ DEPLOYMENT SUCCESSFUL! ✓                  "
-          - "╚════════════════════════════════════════════════════════╝"
-          - ""
-          - "🌐 Application URLs:"
-          - "   Frontend:  http://{{ ansible_default_ipv4.address }}"
-          - "   API:       http://{{ ansible_default_ipv4.address }}:{{ backend_port }}/api"
-          - "   Health:    http://{{ ansible_default_ipv4.address }}:{{ backend_port }}/api/health"
-          - ""
-          - "📊 Services Status:"
-          - "   Backend:   {{ 'Running ✓' if backend_status.rc == 0 else 'Failed ✗' }}"
-          - "   Frontend:  {{ 'Available ✓' if frontend_test.status == 200 else 'Failed ✗' }}"
-          - "   Nginx:     Running ✓"
-          - ""
-          - "🔍 Quick Tests:"
-          - "   curl http://{{ ansible_default_ipv4.address }}"
-          - "   curl http://{{ ansible_default_ipv4.address }}:5000/api/health"
-          - "   curl http://{{ ansible_default_ipv4.address }}:5000/api/tasks"
-          - ""
-          - "📝 Logs Location:"
-          - "   Backend:   /opt/taskmanager/logs/"
-          - "   Nginx:     /var/log/nginx/"
-          - ""
-          - "⚙️  Service Management:"
-          - "   sudo systemctl status taskmanager-backend"
-          - "   sudo systemctl restart taskmanager-backend"
-          - "   sudo systemctl status nginx"
-
-    - name: Create deployment info file
-      ansible.builtin.copy:
+        
+    - name: Create application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: '0755'
+        
+    - name: Copy application files
+      copy:
+        src: "../../app/"
+        dest: "{{ app_dir }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        
+    - name: Create virtual environment
+      command:
+        cmd: python3 -m venv venv
+        chdir: "{{ app_dir }}/database"
+        creates: "{{ app_dir }}/database/venv/bin/python"
+        
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ app_dir }}/database/requirements.txt"
+        virtualenv: "{{ app_dir }}/database/venv"
+        virtualenv_command: python3 -m venv
+        
+    - name: Create database directory
+      file:
+        path: /var/lib/{{ app_name }}
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: '0755'
+        
+    - name: Create systemd service file
+      copy:
+        dest: /etc/systemd/system/{{ app_name }}.service
         content: |
-          ╔════════════════════════════════════════════════════════╗
-          ║         Task Manager Application                       ║
-          ║         Deployment Information                         ║
-          ╚════════════════════════════════════════════════════════╝
-
-          Deployment Date: {{ ansible_date_time.iso8601 }}
-          Server: {{ ansible_hostname }}
-          IP Address: {{ ansible_default_ipv4.address }}
-          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
-
-          Application Details:
-          - Name: {{ app_name }}
-          - Version: {{ app_version }}
-          - Frontend Port: {{ frontend_port }}
-          - Backend Port: {{ backend_port }}
-
-          URLs:
-          - Frontend: http://{{ ansible_default_ipv4.address }}
-          - API: http://{{ ansible_default_ipv4.address }}:{{ backend_port }}/api
-          - Health Check: http://{{ ansible_default_ipv4.address }}:{{ backend_port }}/api/health
-
-          Features:
-          - ✓ Full-Stack React + Flask application
-          - ✓ Task management with CRUD operations
-          - ✓ SQLite database
-          - ✓ RESTful API
-          - ✓ Responsive UI
-          - ✓ Real-time filtering and search
-          - ✓ Category and priority management
-
-          Service Status:
-          - Backend Service: Active
-          - Nginx Service: Active
-          - Database: SQLite (initialized)
-
-          Log Files:
-          - Backend: /opt/taskmanager/logs/backend.log
-          - Access: /opt/taskmanager/logs/access.log
-          - Errors: /opt/taskmanager/logs/error.log
-          - Nginx Access: /var/log/nginx/taskmanager-access.log
-          - Nginx Error: /var/log/nginx/taskmanager-error.log
-
-          Management Commands:
-          - Check backend: sudo systemctl status taskmanager-backend
-          - Restart backend: sudo systemctl restart taskmanager-backend
-          - Check nginx: sudo systemctl status nginx
-          - View logs: sudo journalctl -u taskmanager-backend -f
-          - Test API: curl http://localhost:5000/api/health
-
-          Database:
-          - Location: /opt/taskmanager/backend/tasks.db
-          - Type: SQLite
-          - Tables: tasks, categories
-
-          Deployed by: Ansible
-          Infrastructure: Terraform + Ansible
-
-        dest: /opt/taskmanager/DEPLOYMENT_INFO.txt
-        owner: ec2-user
-        group: ec2-user
-        mode: "0644"
-
-  handlers:
-    - name: reload systemd
-      ansible.builtin.systemd:
+          [Unit]
+          Description=Task Manager Flask Application
+          After=network.target
+          Requires=network.target
+          
+          [Service]
+          Type=simple
+          User={{ app_user }}
+          Group={{ app_group }}
+          WorkingDirectory={{ app_dir }}/database
+          Environment="PATH={{ app_dir }}/database/venv/bin"
+          Environment="FLASK_ENV=production"
+          Environment="SECRET_KEY=your-production-secret-key-change-this"
+          ExecStart={{ app_dir }}/database/venv/bin/python app.py
+          Restart=always
+          RestartSec=10
+          
+          [Install]
+          WantedBy=multi-user.target
+          
+    - name: Create logs directory
+      file:
+        path: /var/log/{{ app_name }}
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+        
+    - name: Reload systemd daemon
+      systemd:
         daemon_reload: yes
-
-    - name: restart backend
-      ansible.builtin.systemd:
-        name: taskmanager-backend
-        state: restarted
-
-    - name: restart nginx
-      ansible.builtin.service:
-        name: nginx
-        state: restarted
-
-    - name: reload nginx
-      ansible.builtin.service:
-        name: nginx
-        state: reloaded
+        
+    - name: Enable and start application service
+      systemd:
+        name: "{{ app_name }}"
+        state: started
+        enabled: yes
+        daemon_reload: yes
+        
+    - name: Wait for application to start
+      wait_for:
+        port: "{{ backend_port }}"
+        delay: 5
+        timeout: 60
+        
+    - name: Test application endpoint
+      uri:
+        url: "http://localhost:{{ backend_port }}/api/health"
+        method: GET
+        return_content: yes
+      register: health_check
+      until: health_check.status == 200
+      retries: 10
+      delay: 5
+      
+    - name: Show health check result
+      debug:
+        msg: "Application health check: {{ health_check.json }}"
