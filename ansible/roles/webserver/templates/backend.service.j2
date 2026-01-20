@@ -11,11 +11,19 @@ Environment="PATH=/opt/taskmanager/backend/venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment="FLASK_APP=app.py"
 Environment="FLASK_ENV=production"
 Environment="PYTHONUNBUFFERED=1"
+Environment="SECRET_KEY={{ lookup('password', '/dev/null length=64 chars=ascii_letters,digits') }}"
 ExecStart=/opt/taskmanager/backend/venv/bin/python /opt/taskmanager/backend/app.py
 Restart=always
 RestartSec=10
 StandardOutput=append:/opt/taskmanager/logs/backend.log
 StandardError=append:/opt/taskmanager/logs/backend-error.log
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/taskmanager
 
 [Install]
 WantedBy=multi-user.target

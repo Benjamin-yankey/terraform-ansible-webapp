@@ -1,5 +1,9 @@
 # Task Manager Application - Nginx Configuration
 
+# Rate limiting zones
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=general_limit:10m rate=30r/s;
+
 upstream backend_api {
     server 127.0.0.1:5000;
     keepalive 32;
@@ -14,10 +18,15 @@ server {
     index index.html;
 
     # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Frame-Options "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:;" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+    # Hide Nginx version
+    server_tokens off;
 
     # Gzip compression
     gzip on;
@@ -32,8 +41,11 @@ server {
     access_log /var/log/nginx/taskmanager-access.log combined;
     error_log /var/log/nginx/taskmanager-error.log warn;
 
-    # API proxy
+    # Rate limiting for API
     location /api/ {
+        limit_req zone=api_limit burst=20 nodelay;
+        limit_req_status 429;
+        
         proxy_pass http://backend_api;
         proxy_http_version 1.1;
         
@@ -57,8 +69,10 @@ server {
         }
     }
 
-    # React app - serve static files
+    # React app - serve static files with rate limiting
     location / {
+        limit_req zone=general_limit burst=50 nodelay;
+        
         try_files $uri $uri/ /index.html;
         
         # Cache static assets
@@ -68,7 +82,7 @@ server {
         }
     }
 
-    # Health check endpoint
+    # Health check endpoint (no rate limit)
     location /health {
         access_log off;
         return 200 "healthy\n";
@@ -82,8 +96,21 @@ server {
         log_not_found off;
     }
 
+    # Deny access to sensitive files
+    location ~* \.(env|git|svn|htaccess|htpasswd)$ {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
     # Error pages
     error_page 404 /index.html;
+    error_page 429 @rate_limit;
+    
+    location @rate_limit {
+        return 429 '{"error": "Too many requests. Please try again later."}';
+        add_header Content-Type application/json;
+    }
     
     error_page 500 502 503 504 /50x.html;
     location = /50x.html {

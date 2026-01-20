@@ -1,0 +1,25 @@
+# AWS Configuration
+aws_region = "us-east-1" # Change to your preferred region
+
+# Project Configuration
+project_name = "terraform-ansible-webapp"
+environment  = "dev"
+owner        = "Your Name" # Change to your name
+
+# EC2 Configuration
+instance_type    = "t2.micro"
+root_volume_size = 30
+
+# Security Configuration
+# IMPORTANT: For production, restrict this to your IP only
+# Get your IP: curl https://api.ipify.org
+ssh_allowed_ips = ["0.0.0.0/0"] # ⚠️ WARNING: Change to ["YOUR_IP/32"]
+
+# Monitoring
+enable_monitoring = true
+
+# Additional Tags (optional)
+common_tags = {
+  CostCenter = "Engineering"
+  Compliance = "Standard"
+}
