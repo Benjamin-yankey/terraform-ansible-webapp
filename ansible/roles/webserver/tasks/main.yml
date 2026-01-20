@@ -1,0 +1,210 @@
+---
+# Full-Stack Web Application Deployment
+
+- name: Install system dependencies
+  ansible.builtin.yum:
+    name:
+      - python3
+      - python3-pip
+      - python3-devel
+      - gcc
+      - nginx
+      - git
+      - nodejs
+      - npm
+    state: present
+    update_cache: yes
+
+- name: Install Node.js 18.x (required for React)
+  block:
+    - name: Add NodeSource repository
+      ansible.builtin.shell: |
+        curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
+      args:
+        creates: /etc/yum.repos.d/nodesource-el.repo
+
+    - name: Install Node.js 18
+      ansible.builtin.yum:
+        name: nodejs
+        state: present
+
+- name: Create application directory
+  ansible.builtin.file:
+    path: /opt/taskmanager
+    state: directory
+    owner: ec2-user
+    group: ec2-user
+    mode: "0755"
+
+- name: Create subdirectories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: ec2-user
+    group: ec2-user
+    mode: "0755"
+  loop:
+    - /opt/taskmanager/backend
+    - /opt/taskmanager/frontend
+    - /opt/taskmanager/logs
+    - /var/www/taskmanager
+
+# Backend Deployment
+- name: Copy backend application files
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /opt/taskmanager/backend/
+    owner: ec2-user
+    group: ec2-user
+    mode: "0644"
+  loop:
+    - ../../../app/backend/app.py
+    - ../../../app/backend/requirements.txt
+
+- name: Create Python virtual environment
+  ansible.builtin.command:
+    cmd: python3 -m venv /opt/taskmanager/backend/venv
+    creates: /opt/taskmanager/backend/venv
+
+- name: Upgrade pip in virtual environment
+  ansible.builtin.pip:
+    name: pip
+    state: latest
+    virtualenv: /opt/taskmanager/backend/venv
+
+- name: Install Python dependencies
+  ansible.builtin.pip:
+    requirements: /opt/taskmanager/backend/requirements.txt
+    virtualenv: /opt/taskmanager/backend/venv
+
+- name: Create systemd service for backend
+  ansible.builtin.template:
+    src: backend.service.j2
+    dest: /etc/systemd/system/taskmanager-backend.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart backend
+
+- name: Enable and start backend service
+  ansible.builtin.systemd:
+    name: taskmanager-backend
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+# Frontend Deployment
+- name: Copy frontend source files
+  ansible.builtin.synchronize:
+    src: ../../../app/frontend/
+    dest: /opt/taskmanager/frontend/
+    delete: no
+    recursive: yes
+  delegate_to: localhost
+
+- name: Set ownership of frontend files
+  ansible.builtin.file:
+    path: /opt/taskmanager/frontend
+    owner: ec2-user
+    group: ec2-user
+    recurse: yes
+
+- name: Install frontend dependencies
+  ansible.builtin.command:
+    cmd: npm install
+    chdir: /opt/taskmanager/frontend
+  become_user: ec2-user
+  register: npm_install
+  changed_when: npm_install.rc == 0
+
+- name: Build React application
+  ansible.builtin.command:
+    cmd: npm run build
+    chdir: /opt/taskmanager/frontend
+  become_user: ec2-user
+  register: npm_build
+  changed_when: npm_build.rc == 0
+
+- name: Copy build files to Nginx directory
+  ansible.builtin.synchronize:
+    src: /opt/taskmanager/frontend/build/
+    dest: /var/www/taskmanager/
+    delete: yes
+  delegate_to: "{{ inventory_hostname }}"
+
+- name: Set permissions on web files
+  ansible.builtin.file:
+    path: /var/www/taskmanager
+    owner: nginx
+    group: nginx
+    recurse: yes
+
+# Nginx Configuration
+- name: Configure Nginx for application
+  ansible.builtin.template:
+    src: nginx-app.conf.j2
+    dest: /etc/nginx/conf.d/taskmanager.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart nginx
+
+- name: Remove default Nginx configuration
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d/default.conf
+    state: absent
+  notify: restart nginx
+
+- name: Ensure Nginx is enabled and running
+  ansible.builtin.service:
+    name: nginx
+    enabled: yes
+    state: started
+
+# Firewall Configuration
+- name: Configure firewall for HTTP
+  ansible.posix.firewalld:
+    service: http
+    permanent: yes
+    state: enabled
+    immediate: yes
+  when: ansible_facts.services['firewalld.service'] is defined
+  ignore_errors: true
+
+- name: Configure firewall for API port
+  ansible.posix.firewalld:
+    port: 5000/tcp
+    permanent: yes
+    state: enabled
+    immediate: yes
+  when: ansible_facts.services['firewalld.service'] is defined
+  ignore_errors: true
+
+# Health Checks
+- name: Wait for backend to be ready
+  ansible.builtin.uri:
+    url: http://localhost:5000/api/health
+    status_code: 200
+  register: backend_health
+  until: backend_health.status == 200
+  retries: 10
+  delay: 3
+
+- name: Wait for frontend to be ready
+  ansible.builtin.uri:
+    url: http://localhost
+    status_code: 200
+  register: frontend_health
+  until: frontend_health.status == 200
+  retries: 5
+  delay: 2
+
+- name: Display deployment information
+  ansible.builtin.debug:
+    msg:
+      - "✓ Backend API: http://{{ ansible_default_ipv4.address }}:5000/api"
+      - "✓ Frontend App: http://{{ ansible_default_ipv4.address }}"
+      - "✓ Health Check: http://{{ ansible_default_ipv4.address }}:5000/api/health"
+      - "✓ Application deployed successfully!"

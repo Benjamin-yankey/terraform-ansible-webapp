@@ -1,0 +1,68 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Ansible
+*.retry
+ansible.log
+__pycache__/
+*.py[cod]
+*$py.class
+.ansible/
+*.vault
+
+# SSH Keys
+*.pem
+*.key
+ssh-key*
+id_rsa
+id_rsa.pub
+
+# Inventory files (auto-generated)
+ansible/inventory/hosts.ini
+ansible/inventory/*.ini
+
+# Evidence and Screenshots
+evidence/APPLY.txt
+evidence/DESTROY.txt
+evidence/curl-output.txt
+evidence/public_ip.txt
+evidence/terraform_outputs.txt
+screenshots/*.png
+screenshots/*.jpg
+
+# OS specific
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+
+# Temporary files
+*.tmp
+*.bak
+tmp/
+temp/
+venv/
