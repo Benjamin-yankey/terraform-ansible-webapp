@@ -2,60 +2,327 @@
 
 Automated deployment of a web application using Terraform for AWS infrastructure provisioning and Ansible for configuration management.
 
+## Overview
+
+This project demonstrates Infrastructure as Code (IaC) best practices by automating the complete lifecycle of a web application deployment on AWS. Terraform provisions the cloud infrastructure while Ansible handles configuration management and application deployment.
+
+### Key Features
+
+- Automated AWS infrastructure provisioning
+- Dynamic inventory generation
+- Secure SSH key management
+- Nginx web server configuration
+- Idempotent deployments
+- One-command deployment and cleanup
+
 ## Prerequisites
+
+### Required Tools
 
 - Terraform 1.5.0+
 - Ansible 2.14+
 - AWS CLI configured with credentials
-- AWS account with EC2 permissions
+- Make (optional, for automation)
+
+### AWS Requirements
+
+- Active AWS account
+- IAM user with EC2, VPC, and Key Pair permissions
+- AWS credentials configured (`aws configure`)
+
+### System Requirements
+
+- Linux/macOS/WSL
+- SSH client
+- Internet connectivity
 
 ## Project Structure
 
 ```
 terraform-ansible-webapp/
-├── terraform/          # Infrastructure provisioning
-├── ansible/            # Configuration management
-├── scripts/            # Deployment scripts
-└── evidence/           # Deployment outputs
+├── terraform/
+│   ├── main.tf              # Main infrastructure configuration
+│   ├── variables.tf         # Input variables
+│   ├── outputs.tf           # Output values
+│   ├── terraform.tfvars     # Variable values
+│   └── inventory.tpl        # Ansible inventory template
+├── ansible/
+│   ├── ansible.cfg          # Ansible configuration
+│   ├── site.yml             # Main playbook
+│   ├── inventory/
+│   │   └── hosts.ini        # Generated inventory
+│   └── roles/
+│       └── webserver/       # Webserver role
+├── evidence/
+│   ├── APPLY.txt            # Terraform apply output
+│   └── DESTROY.txt          # Terraform destroy output
+├── architecture-diagram.drawio  # Architecture diagram
+├── ARCHITECTURE.md          # Architecture documentation
+└── README.md                # This file
 ```
 
 ## Quick Start
 
 ```bash
-# Deploy
-make all
+# Initialize Terraform
+cd terraform
+terraform init
+terraform apply -auto-approve | tee ../evidence/APPLY.txt
+
+# Wait for EC2 to boot
+sleep 90
+
+# Deploy with Ansible
+cd ../ansible
+ansible-playbook -i inventory/hosts.ini site.yml
+
+# Test
+PUBLIC_IP=$(cd ../terraform && terraform output -raw public_ip)
+curl http://$PUBLIC_IP
 
 # Cleanup
-make destroy
+cd ../terraform
+terraform destroy -auto-approve | tee ../evidence/DESTROY.txt
 ```
 
 ## Manual Deployment
 
+### Step 1: Configure Variables
+
+Edit `terraform/terraform.tfvars`:
+
+```hcl
+aws_region       = "eu-west-1"
+project_name     = "terraform-ansible-webapp"
+environment      = "dev"
+owner            = "Your Name"
+instance_type    = "t3.micro"
+root_volume_size = 30
+ssh_allowed_ips  = ["YOUR_IP/32"]  # Change to your IP
+common_tags      = {}
+```
+
+### Step 2: Initialize Terraform
+
 ```bash
 cd terraform
 terraform init
-terraform apply -auto-approve | tee ../evidence/APPLY.txt
-sleep 90
+terraform validate
+```
 
+### Step 3: Provision Infrastructure
+
+```bash
+terraform apply -auto-approve | tee ../evidence/APPLY.txt
+```
+
+This creates:
+
+- EC2 instance (t3.micro)
+- Security Group (SSH + HTTP)
+- SSH Key Pair
+- Elastic IP
+- Dynamic Ansible inventory
+
+### Step 4: Wait for EC2 Initialization
+
+```bash
+sleep 90  # Wait for EC2 to boot
+```
+
+### Step 5: Deploy Application
+
+```bash
 cd ../ansible
 ansible-playbook -i inventory/hosts.ini site.yml
 ```
 
+This configures:
+
+- Nginx web server
+- Web application files
+- Service management
+
 ## Verification
+
+### Command Line Testing
 
 ```bash
 # Get public IP
 PUBLIC_IP=$(cd terraform && terraform output -raw public_ip)
 
-# Test
+# Test HTTP endpoint
 curl http://$PUBLIC_IP
+
+# Check HTTP headers
+curl -I http://$PUBLIC_IP
+
+# Save output to evidence
+curl -v http://$PUBLIC_IP > evidence/curl-output.txt 2>&1
 ```
+
+### Browser Testing
+
+1. Get the public IP: `cd terraform && terraform output public_ip`
+2. Open browser: `http://<PUBLIC_IP>`
+3. Verify web page loads correctly
+
+### SSH Access
+
+```bash
+# SSH into EC2 instance
+PUBLIC_IP=$(cd terraform && terraform output -raw public_ip)
+ssh -i ansible/ssh-key.pem ec2-user@$PUBLIC_IP
+
+# Check Nginx status
+sudo systemctl status nginx
+
+# View Nginx logs
+sudo tail -f /var/log/nginx/access.log
+```
+
+### Expected Results
+
+- HTTP Status: 200 OK
+- Content-Type: text/html
+- Nginx service: active (running)
+- Web page displays deployment information
+
+## Configuration
+
+### Terraform Variables
+
+| Variable         | Description          | Default                  |
+| ---------------- | -------------------- | ------------------------ |
+| aws_region       | AWS region           | eu-west-1                |
+| project_name     | Project name         | terraform-ansible-webapp |
+| environment      | Environment          | dev                      |
+| instance_type    | EC2 instance type    | t3.micro                 |
+| root_volume_size | EBS volume size (GB) | 30                       |
+| ssh_allowed_ips  | IPs allowed for SSH  | []                       |
+
+### Ansible Configuration
+
+- Host key checking: Disabled
+- SSH timeout: 30 seconds
+- Retry files: Disabled
+- Inventory: Dynamic (generated by Terraform)
+
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation and [architecture-diagram.drawio](architecture-diagram.drawio) for the visual diagram.
+
+### Infrastructure Components
+
+- **VPC**: Default VPC in eu-west-1
+- **EC2**: t3.micro instance with Amazon Linux 2023
+- **Security Group**: SSH (22) + HTTP (80)
+- **Elastic IP**: Static public IP address
+- **EBS Volume**: 30GB gp3 storage
+
+### Deployment Flow
+
+1. Terraform provisions AWS infrastructure
+2. Generates SSH key pair and dynamic inventory
+3. Ansible connects via SSH
+4. Installs and configures Nginx
+5. Deploys web application
+6. User accesses via Elastic IP
+
+## Troubleshooting
+
+### Terraform Issues
+
+**Problem**: Provider download fails
+
+```bash
+rm -rf .terraform .terraform.lock.hcl
+terraform init
+```
+
+**Problem**: State file locked
+
+```bash
+terraform force-unlock <LOCK_ID>
+```
+
+### Ansible Issues
+
+**Problem**: Connection timeout
+
+```bash
+# Wait longer for EC2 initialization
+sleep 120
+
+# Test SSH manually
+ssh -i ansible/ssh-key.pem ec2-user@<PUBLIC_IP>
+```
+
+**Problem**: Permission denied for SSH key
+
+```bash
+chmod 400 ansible/ssh-key.pem
+```
+
+### Application Issues
+
+**Problem**: HTTP 403/404 error
+
+```bash
+# Check Nginx status
+ssh -i ansible/ssh-key.pem ec2-user@<PUBLIC_IP>
+sudo systemctl status nginx
+sudo nginx -t
+```
+
+## Security Best Practices
+
+- Restrict SSH access to your IP only
+- Use strong SSH keys (4096-bit)
+- Never commit private keys to Git
+- Enable AWS CloudTrail for auditing
+- Use HTTPS in production
+- Regularly update AMI and packages
+- Implement least privilege IAM policies
+
+## Cost Optimization
+
+- t3.micro eligible for AWS Free Tier
+- Stop instances when not in use
+- Delete resources after testing
+- Monitor with AWS Cost Explorer
+- Set up billing alerts
 
 ## Cleanup
 
 ```bash
+# Destroy infrastructure
 cd terraform
 terraform destroy -auto-approve | tee ../evidence/DESTROY.txt
+
+# Clean generated files
+rm -rf .terraform *.tfstate* tfplan
+rm -f ../ansible/ssh-key.pem ../ansible/inventory/hosts.ini
 ```
 
+## Contributing
 
+Contributions are welcome! Please follow these guidelines:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Support
+
+For issues and questions:
+
+- Open an issue on GitHub
+- Check [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation
+- Review Terraform and Ansible logs
