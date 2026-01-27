@@ -1,7 +1,7 @@
 ---
 - name: Deploy Full-Stack Web Application
   hosts: webservers
-  become: yes
   gather_facts: yes
+  # Don't escalate at playbook level - escalate per task instead
   roles:
     - webserver

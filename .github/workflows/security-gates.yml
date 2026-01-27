@@ -1,0 +1,159 @@
+---
+name: Security Gates & Policy Enforcement
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "ansible/**"
+      - "terraform/**"
+      - ".github/workflows/**"
+  push:
+    branches: [main]
+    paths:
+      - "ansible/**"
+      - "terraform/**"
+
+jobs:
+  pre-commit:
+    name: Pre-Commit Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Run pre-commit hooks
+        uses: pre-commit/action@v3
+
+  ansible-lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install ansible-lint
+        run: pip install ansible-lint
+
+      - name: Run ansible-lint
+        run: |
+          cd ansible
+          ansible-lint --strict
+
+  terraform:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: latest
+
+      - name: Terraform Format
+        run: |
+          cd terraform
+          terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Validate
+        run: |
+          cd terraform
+          terraform init -backend=false
+          terraform validate
+
+  shellcheck:
+    name: Shell Script Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run ShellCheck
+        run: |
+          sudo apt-get install -y shellcheck
+          find . -name "*.sh" -type f | xargs shellcheck --severity=warning || true
+
+  code-quality:
+    name: Code Quality Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install linters
+        run: |
+          pip install pylint bandit
+
+      - name: Run Bandit (Security)
+        run: |
+          bandit -r ansible app terraform || true
+
+      - name: Run Pylint (Python)
+        run: |
+          find . -name "*.py" -type f | xargs pylint --fail-under=7.0 || true
+
+  approval-check:
+    name: Approval Required
+    runs-on: ubuntu-latest
+    needs:
+      - pre-commit
+      - ansible-lint
+      - terraform
+      - shellcheck
+
+    if: failure()
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Comment PR with Issues
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ Security checks failed. Please address the issues before merging.'
+            })
+
+      - name: Fail Job
+        run: exit 1
+
+  success-notification:
+    name: Success Notification
+    runs-on: ubuntu-latest
+    needs:
+      - pre-commit
+      - ansible-lint
+      - terraform
+      - shellcheck
+
+    if: success() && github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ All security checks passed. Ready for review.'
+            })

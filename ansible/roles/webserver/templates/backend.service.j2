@@ -12,11 +12,13 @@ Environment="FLASK_APP=app.py"
 Environment="FLASK_ENV=production"
 Environment="PYTHONUNBUFFERED=1"
 Environment="SECRET_KEY={{ lookup('password', '/dev/null length=64 chars=ascii_letters,digits') }}"
+Environment="FORCE_HTTPS=False"
 ExecStart=/opt/taskmanager/backend/venv/bin/python /opt/taskmanager/backend/app.py
 Restart=always
 RestartSec=10
-StandardOutput=append:/opt/taskmanager/logs/backend.log
-StandardError=append:/opt/taskmanager/logs/backend-error.log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=taskmanager-backend
 
 # Security hardening
 NoNewPrivileges=true

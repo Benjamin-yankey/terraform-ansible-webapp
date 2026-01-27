@@ -1,0 +1,13 @@
+---
+# Ansible-lint configuration - minimal setup
+
+extends: default
+
+skip_list:
+  - 'no-changed-when'
+  - 'package-latest'
+  - 'fqcn-builtins'
+
+rules:
+  line-length:
+    max: 120

@@ -12,9 +12,32 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 
+# Try to import Flask-Talisman for security headers, skip if not installed
+try:
+    from flask_talisman import Talisman  # type: ignore
+    TALISMAN_AVAILABLE = True
+except ImportError:
+    TALISMAN_AVAILABLE = False
+
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+
+# Security: CORS configuration (restrict to specific origins in production)
+cors_origins = os.environ.get('CORS_ORIGINS', ['http://localhost:3000']).split(',') if os.environ.get('CORS_ORIGINS') else ['http://localhost:3000']
+CORS(app, origins=cors_origins, supports_credentials=True)
+
+# Security: Enable Talisman for additional HTTP security headers (if available)
+if TALISMAN_AVAILABLE:
+    Talisman(app,
+        force_https=os.environ.get('FORCE_HTTPS', 'True').lower() == 'true',
+        strict_transport_security=True,
+        content_security_policy={
+            'default-src': "'self'",
+            'script-src': "'self'",
+            'style-src': "'self'",
+            'img-src': "'self' data:",
+        }
+    )
 
 # Configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///tasks.db'
@@ -22,6 +45,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 app.config['JSON_SORT_KEYS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max request size
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PREFERRED_URL_SCHEME'] = 'https'
 
 # Initialize database
 db = SQLAlchemy(app)
@@ -128,7 +155,7 @@ def stats():
     total = Task.query.count()
     completed = Task.query.filter_by(completed=True).count()
     pending = total - completed
-    
+
     return jsonify({
         'total_tasks': total,
         'completed_tasks': completed,
@@ -147,9 +174,9 @@ def get_tasks():
         priority = request.args.get('priority')
         completed = request.args.get('completed')
         search = request.args.get('search')
-        
+
         query = Task.query
-        
+
         if category:
             query = query.filter_by(category=category)
         if priority:
@@ -159,9 +186,9 @@ def get_tasks():
             query = query.filter_by(completed=completed_bool)
         if search:
             query = query.filter(Task.title.contains(search) | Task.description.contains(search))
-        
+
         tasks = query.order_by(Task.created_at.desc()).all()
-        
+
         return jsonify({
             'success': True,
             'count': len(tasks),
@@ -185,11 +212,11 @@ def create_task():
     """Create a new task"""
     try:
         data = request.get_json()
-        
+
         # Validation
         if not data or not data.get('title'):
             return jsonify({'success': False, 'error': 'Title is required'}), 400
-        
+
         # Parse due date if provided
         due_date = None
         if data.get('due_date'):
@@ -197,7 +224,7 @@ def create_task():
                 due_date = datetime.fromisoformat(data['due_date'].replace('Z', '+00:00'))
             except ValueError:
                 return jsonify({'success': False, 'error': 'Invalid date format'}), 400
-        
+
         task = Task(
             title=data['title'],
             description=data.get('description', ''),
@@ -205,12 +232,12 @@ def create_task():
             category=data.get('category', 'general'),
             due_date=due_date
         )
-        
+
         db.session.add(task)
         db.session.commit()
-        
+
         app.logger.info(f'Task created: {task.title}')
-        
+
         return jsonify({
             'success': True,
             'message': 'Task created successfully',
@@ -227,7 +254,7 @@ def update_task(task_id):
     try:
         task = Task.query.get_or_404(task_id)
         data = request.get_json()
-        
+
         if 'title' in data:
             task.title = data['title']
         if 'description' in data:
@@ -243,12 +270,12 @@ def update_task(task_id):
                 task.due_date = datetime.fromisoformat(data['due_date'].replace('Z', '+00:00'))
             else:
                 task.due_date = None
-        
+
         task.updated_at = datetime.utcnow()
         db.session.commit()
-        
+
         app.logger.info(f'Task updated: {task.title}')
-        
+
         return jsonify({
             'success': True,
             'message': 'Task updated successfully',
@@ -266,9 +293,9 @@ def delete_task(task_id):
         task = Task.query.get_or_404(task_id)
         db.session.delete(task)
         db.session.commit()
-        
+
         app.logger.info(f'Task deleted: {task.title}')
-        
+
         return jsonify({
             'success': True,
             'message': 'Task deleted successfully'
@@ -294,18 +321,18 @@ def create_category():
     """Create a new category"""
     try:
         data = request.get_json()
-        
+
         if not data or not data.get('name'):
             return jsonify({'success': False, 'error': 'Name is required'}), 400
-        
+
         category = Category(
             name=data['name'],
             color=data.get('color', '#3B82F6')
         )
-        
+
         db.session.add(category)
         db.session.commit()
-        
+
         return jsonify({
             'success': True,
             'category': category.to_dict()

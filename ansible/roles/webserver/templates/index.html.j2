@@ -153,11 +153,11 @@
             .container {
                 padding: 30px;
             }
-            
+
             h1 {
                 font-size: 1.8em;
             }
-            
+
             .info-grid {
                 grid-template-columns: 1fr;
             }
@@ -167,7 +167,7 @@
 <body>
     <div class="container">
         <h1>🚀 Deployment Successful!</h1>
-        
+
         <div class="success-badge">
             <span class="status-indicator"></span>
             Web Application is Live and Running
@@ -178,27 +178,27 @@
                 <h3>Server Hostname</h3>
                 <p>{{ ansible_hostname }}</p>
             </div>
-            
+
             <div class="info-card">
                 <h3>Public IP Address</h3>
                 <p>{{ ansible_default_ipv4.address }}</p>
             </div>
-            
+
             <div class="info-card">
                 <h3>Operating System</h3>
                 <p>{{ ansible_distribution }} {{ ansible_distribution_version }}</p>
             </div>
-            
+
             <div class="info-card">
                 <h3>Architecture</h3>
                 <p>{{ ansible_architecture }}</p>
             </div>
-            
+
             <div class="info-card">
                 <h3>Deployment Time</h3>
                 <p>{{ ansible_date_time.date }} {{ ansible_date_time.time }}</p>
             </div>
-            
+
             <div class="info-card">
                 <h3>Timezone</h3>
                 <p>{{ ansible_date_time.tz }}</p>

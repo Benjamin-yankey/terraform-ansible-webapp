@@ -104,3 +104,5 @@ screenshots/*.jpg
 .env
 secrets.yaml
 credentials.json
+.aws/credentials
+.gitleaks.toml

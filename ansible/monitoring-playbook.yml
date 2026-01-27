@@ -1,0 +1,244 @@
+---
+# Playbook to configure comprehensive audit logging
+
+- name: Configure Audit Logging Infrastructure
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    log_retention_days: 90
+    audit_log_path: /var/log/audit
+    ansible_log_path: /var/log/ansible
+
+  tasks:
+    # ========================================================================
+    # SECTION 1: System Audit Logging (auditd)
+    # ========================================================================
+
+    - name: Install auditd
+      ansible.builtin.package:
+        name: audit
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Create audit log directory
+      ansible.builtin.file:
+        path: "{{ audit_log_path }}"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: Configure auditd - syscalls
+      ansible.builtin.copy:
+        dest: /etc/audit/rules.d/audit.rules
+        content: |
+          # Remove any existing rules
+          -D
+
+          # Buffer Size
+          -b 8192
+
+          # Failure Mode
+          -f 1
+
+          # Audit system calls
+          -a always,exit -F arch=b64 -S execve -F uid>=1000 -F uid!=-1 -k user_commands
+          -a always,exit -F arch=b32 -S execve -F uid>=1000 -F uid!=-1 -k user_commands
+
+          # Audit file access
+          -w /etc/passwd -p wa -k passwd_changes
+          -w /etc/group -p wa -k group_changes
+          -w /etc/shadow -p wa -k shadow_changes
+          -w /etc/sudoers -p wa -k sudoers_changes
+          -w /etc/sudoers.d/ -p wa -k sudoers_changes
+
+          # Audit SSH changes
+          -w /etc/ssh/sshd_config -p wa -k sshd_config_changes
+
+          # Audit Ansible changes
+          -w /etc/ansible/ -p wa -k ansible_config_changes
+          -w /opt/ansible/ -p wa -k ansible_changes
+
+          # Audit network changes
+          -w /etc/hosts -p wa -k hosts_changes
+          -w /etc/hostname -p wa -k hostname_changes
+
+          # Audit service changes
+          -w /etc/systemd/system/ -p wa -k systemd_changes
+          -w /usr/lib/systemd/system/ -p wa -k systemd_changes
+
+          # Audit kernel module changes
+          -a always,exit -F arch=b64 -S init_module -S delete_module -k kernel_modules
+
+          # Make configuration immutable
+          -e 2
+        owner: root
+        group: root
+        mode: "0640"
+      notify: Restart auditd
+
+    - name: Start auditd service
+      ansible.builtin.systemd:
+        name: auditd
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    # ========================================================================
+    # SECTION 2: Ansible Execution Logging
+    # ========================================================================
+
+    - name: Create Ansible log directory
+      ansible.builtin.file:
+        path: "{{ ansible_log_path }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Configure ansible.cfg for enhanced logging
+      ansible.builtin.lineinfile:
+        path: /etc/ansible/ansible.cfg
+        regexp: "^#?log_path"
+        line: "log_path = {{ ansible_log_path }}/ansible.log"
+        state: present
+        create: true
+
+    - name: Configure callback logging
+      ansible.builtin.lineinfile:
+        path: /etc/ansible/ansible.cfg
+        regexp: "^#?callback_whitelist"
+        line: "callback_whitelist = profile_tasks, timer"
+        state: present
+
+    - name: Create Ansible callback directory
+      ansible.builtin.file:
+        path: "{{ ansible_log_path }}/callbacks"
+        state: directory
+        mode: "0755"
+
+    # ========================================================================
+    # SECTION 3: Application Logging Directory
+    # ========================================================================
+
+    - name: Create application log directory
+      ansible.builtin.file:
+        path: /var/log/webapp
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    # ========================================================================
+    # SECTION 4: Log Rotation
+    # ========================================================================
+
+    - name: Configure logrotate for Ansible logs
+      ansible.builtin.copy:
+        dest: /etc/logrotate.d/ansible
+        content: |
+          {{ ansible_log_path }}/*.log {
+              daily
+              rotate 30
+              compress
+              delaycompress
+              missingok
+              notifempty
+              create 0600 root root
+              sharedscripts
+              postrotate
+                  systemctl reload rsyslog > /dev/null 2>&1 || true
+              endscript
+          }
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Configure logrotate for application logs
+      ansible.builtin.copy:
+        dest: /etc/logrotate.d/webapp
+        content: |
+          /var/log/webapp/*.log {
+              daily
+              rotate 30
+              compress
+              delaycompress
+              missingok
+              notifempty
+              create 0640 root root
+              sharedscripts
+          }
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Configure logrotate for audit logs
+      ansible.builtin.copy:
+        dest: /etc/logrotate.d/audit
+        content: |
+          {{ audit_log_path }}/*.log {
+              daily
+              rotate 90
+              compress
+              delaycompress
+              missingok
+              create 0640 root root
+          }
+        owner: root
+        group: root
+        mode: "0644"
+
+    # ========================================================================
+    # SECTION 5: Secure Log Forwarding
+    # ========================================================================
+
+    - name: Install rsyslog (log aggregation)
+      ansible.builtin.package:
+        name: rsyslog
+        state: present
+
+    - name: Configure rsyslog
+      ansible.builtin.copy:
+        dest: /etc/rsyslog.d/99-local.conf
+        content: |
+          # Local log files
+          # Ansible logs
+          :programname, isequal, "ansible" /var/log/ansible/ansible.log
+          & stop
+
+          # Application logs
+          :programname, startswith, "webapp" /var/log/webapp/app.log
+          & stop
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart rsyslog
+
+    # ========================================================================
+    # SECTION 6: Log File Permissions
+    # ========================================================================
+
+    - name: Secure log file permissions
+      ansible.builtin.file:
+        path: "{{ item }}"
+        mode: "0640"
+        owner: root
+        group: root
+      loop:
+        - "{{ ansible_log_path }}"
+        - /var/log/audit
+        - /var/log/webapp
+
+  handlers:
+    - name: Restart auditd
+      ansible.builtin.systemd:
+        name: auditd
+        state: restarted
+
+    - name: Restart rsyslog
+      ansible.builtin.systemd:
+        name: rsyslog
+        state: restarted
+        daemon_reload: true

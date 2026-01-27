@@ -10,7 +10,15 @@
       - gcc
       - git
     state: present
-    update_cache: yes
+    update_cache: true
+  become: true
+
+- name: Install security updates
+  ansible.builtin.yum:
+    name: "*"
+    state: latest
+    security: true
+  become: true
 
 - name: Install Node.js 18.x
   ansible.builtin.shell: |
@@ -18,22 +26,15 @@
     yum install -y nodejs
   args:
     creates: /usr/bin/node
+  become: true
 
 - name: Install Nginx
   ansible.builtin.yum:
     name: nginx
     state: present
-    enablerepo: "*"
+  become: true
 
-- name: Create application directory
-  ansible.builtin.file:
-    path: /opt/taskmanager
-    state: directory
-    owner: ec2-user
-    group: ec2-user
-    mode: "0755"
-
-- name: Create subdirectories
+- name: Create application directories
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
@@ -41,12 +42,81 @@
     group: ec2-user
     mode: "0755"
   loop:
+    - /opt/taskmanager
     - /opt/taskmanager/backend
     - /opt/taskmanager/frontend
     - /opt/taskmanager/logs
-    - /var/www/taskmanager
+  become: true
 
+- name: Create nginx web root directory
+  ansible.builtin.file:
+    path: /var/www/taskmanager
+    state: directory
+    owner: nginx
+    group: nginx
+    mode: "0755"
+  become: true
+
+# --------------------------
+# Firewall / SELinux (MOVED UP - must be configured before Nginx serves files)
+# --------------------------
+- name: Install firewalld and dependencies
+  ansible.builtin.yum:
+    name:
+      - firewalld
+      - python3-firewall
+    state: present
+  become: true
+  ignore_errors: true
+
+- name: Ensure firewalld is started and enabled
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+  become: true
+  ignore_errors: true
+
+- name: Open HTTP/HTTPS ports in firewall
+  ansible.builtin.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - http
+    - https
+  become: true
+  ignore_errors: true
+
+- name: Open SSH port in firewall
+  ansible.builtin.firewalld:
+    port: "22/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+  ignore_errors: true
+
+- name: Enable SELinux enforcing
+  ansible.builtin.selinux:
+    policy: targeted
+    state: enforcing
+  become: true
+  ignore_errors: true
+
+- name: Allow nginx to connect to network
+  ansible.builtin.seboolean:
+    name: httpd_can_network_connect
+    state: true
+    persistent: true
+  become: true
+  when: ansible_facts['selinux']['status'] == "enabled"
+  ignore_errors: true
+
+# --------------------------
 # Backend Deployment
+# --------------------------
 - name: Copy backend app.py
   ansible.builtin.copy:
     src: ../../../app/backend/app.py
@@ -54,6 +124,7 @@
     owner: ec2-user
     group: ec2-user
     mode: "0644"
+  become: true
 
 - name: Copy backend requirements.txt
   ansible.builtin.copy:
@@ -62,11 +133,13 @@
     owner: ec2-user
     group: ec2-user
     mode: "0644"
+  become: true
 
 - name: Create Python virtual environment
   ansible.builtin.command:
     cmd: python3 -m venv /opt/taskmanager/backend/venv
     creates: /opt/taskmanager/backend/venv/bin/python
+  become: true
   become_user: ec2-user
 
 - name: Upgrade pip in virtual environment
@@ -74,12 +147,14 @@
     name: pip
     state: latest
     virtualenv: /opt/taskmanager/backend/venv
+  become: true
   become_user: ec2-user
 
 - name: Install Python dependencies
   ansible.builtin.pip:
     requirements: /opt/taskmanager/backend/requirements.txt
     virtualenv: /opt/taskmanager/backend/venv
+  become: true
   become_user: ec2-user
 
 - name: Create systemd service for backend
@@ -89,30 +164,70 @@
     owner: root
     group: root
     mode: "0644"
+  become: true
   notify:
     - reload systemd
     - restart backend
 
+# Force handlers to run now so backend is started before we check it
+- name: Flush handlers
+  meta: flush_handlers
+
+- name: Wait a moment for backend to initialize
+  ansible.builtin.pause:
+    seconds: 3
+
 - name: Enable and start backend service
   ansible.builtin.systemd:
     name: taskmanager-backend
-    enabled: yes
-    state: started
-    daemon_reload: yes
+    enabled: true
+    state: restarted
+    daemon_reload: true
+  become: true
 
+- name: Wait for backend service to stabilize
+  ansible.builtin.pause:
+    seconds: 5
+
+- name: Check backend service status
+  ansible.builtin.command: systemctl status taskmanager-backend
+  register: backend_status
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Display backend service status
+  ansible.builtin.debug:
+    var: backend_status.stdout_lines
+
+- name: Check backend journal logs
+  ansible.builtin.command: journalctl -u taskmanager-backend -n 50 --no-pager
+  register: backend_journal_log
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Display backend journal logs
+  ansible.builtin.debug:
+    var: backend_journal_log.stdout_lines
+
+# --------------------------
 # Frontend Deployment
+# --------------------------
 - name: Copy frontend source files
   ansible.builtin.copy:
     src: ../../../app/frontend/
     dest: /opt/taskmanager/frontend/
     owner: ec2-user
     group: ec2-user
-    mode: preserve
+    mode: "0644"
+  become: true
 
 - name: Install frontend dependencies
   ansible.builtin.command:
     cmd: npm install
     chdir: /opt/taskmanager/frontend
+  become: true
   become_user: ec2-user
   register: npm_install
   changed_when: npm_install.rc == 0
@@ -121,72 +236,196 @@
   ansible.builtin.command:
     cmd: npm run build
     chdir: /opt/taskmanager/frontend
+  become: true
   become_user: ec2-user
   register: npm_build
   changed_when: npm_build.rc == 0
+
+- name: Verify frontend build succeeded
+  ansible.builtin.stat:
+    path: /opt/taskmanager/frontend/build/index.html
+  register: frontend_build
+  failed_when: not frontend_build.stat.exists
 
 - name: Copy build files to Nginx directory
   ansible.builtin.copy:
     src: /opt/taskmanager/frontend/build/
     dest: /var/www/taskmanager/
-    remote_src: yes
+    remote_src: true
     owner: nginx
     group: nginx
-    mode: preserve
+    mode: "0644"
+    directory_mode: "0755"
+  become: true
 
+- name: Ensure /var/www has correct permissions
+  ansible.builtin.file:
+    path: /var/www
+    mode: "0755"
+    state: directory
+  become: true
+
+- name: Apply permissions and SELinux context to web root
+  ansible.builtin.file:
+    path: /var/www/taskmanager
+    state: directory
+    owner: nginx
+    group: nginx
+    mode: "0755"
+    setype: httpd_sys_content_t
+    recurse: yes
+  become: true
+
+# Debug: Check frontend file permissions and SELinux context
+- name: Check frontend directory permissions
+  ansible.builtin.command: ls -laZ /var/www/taskmanager/
+  register: frontend_perms
+  become: true
+  changed_when: false
+
+- name: Display frontend file permissions
+  ansible.builtin.debug:
+    var: frontend_perms.stdout_lines
+
+- name: Check if index.html exists in nginx directory
+  ansible.builtin.stat:
+    path: /var/www/taskmanager/index.html
+  register: nginx_index
+  become: true
+
+- name: Display index.html status
+  ansible.builtin.debug:
+    msg: "index.html exists: {{ nginx_index.stat.exists | default(false) }}, size: {{ nginx_index.stat.size | default(0) }}"
+
+- name: Check nginx error log
+  ansible.builtin.command: tail -20 /var/log/nginx/taskmanager-error.log
+  register: nginx_error
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Display nginx error log
+  ansible.builtin.debug:
+    var: nginx_error.stdout_lines
+
+- name: Test if nginx can read frontend files
+  ansible.builtin.command: sudo -u nginx cat /var/www/taskmanager/index.html
+  register: nginx_read_test
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Display nginx read test result
+  ansible.builtin.debug:
+    msg: "Nginx can read index.html: {{ nginx_read_test.rc == 0 }}"
+
+# --------------------------
 # Nginx Configuration
-- name: Configure Nginx for application
+# --------------------------
+- name: Backup original nginx.conf
+  ansible.builtin.copy:
+    src: /etc/nginx/nginx.conf
+    dest: /etc/nginx/nginx.conf.backup
+    remote_src: true
+    force: false
+  become: true
+
+- name: Check if rate limiting already configured
+  ansible.builtin.shell: |
+    grep -q "ANSIBLE MANAGED RATE LIMITING" /etc/nginx/nginx.conf
+  register: rate_limit_check
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Remove duplicate rate limiting entries if they exist
+  ansible.builtin.shell: |
+    sed -i '/limit_req_zone.*api_limit/d' /etc/nginx/nginx.conf
+    sed -i '/limit_req_zone.*general_limit/d' /etc/nginx/nginx.conf
+  when: rate_limit_check.rc == 0
+  become: true
+  changed_when: true
+
+- name: Configure rate limiting in main nginx.conf
+  ansible.builtin.blockinfile:
+    path: /etc/nginx/nginx.conf
+    marker: "    # {mark} ANSIBLE MANAGED RATE LIMITING"
+    insertafter: "http {"
+    block: |2
+          # Rate limiting zones for task manager app
+          limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+          limit_req_zone $binary_remote_addr zone=general_limit:10m rate=30r/s;
+  become: true
+  notify: reload nginx
+
+- name: Deploy Nginx site config
   ansible.builtin.template:
     src: nginx-app.conf.j2
     dest: /etc/nginx/conf.d/taskmanager.conf
     owner: root
     group: root
     mode: "0644"
+  become: true
   notify: restart nginx
+
+- name: Validate Nginx configuration
+  ansible.builtin.command:
+    cmd: nginx -t
+  become: true
+  register: nginx_validation
+  changed_when: false
+  failed_when: nginx_validation.rc != 0
 
 - name: Remove default Nginx configuration
   ansible.builtin.file:
     path: /etc/nginx/conf.d/default.conf
     state: absent
+  become: true
   notify: restart nginx
+
+# Force handlers to run so nginx is restarted before health checks
+- name: Flush handlers
+  meta: flush_handlers
 
 - name: Ensure Nginx is enabled and running
   ansible.builtin.service:
     name: nginx
-    enabled: yes
     state: started
+    enabled: true
+  become: true
 
-# Firewall Configuration
-- name: Disable SELinux temporarily
-  ansible.builtin.command: setenforce 0
-  ignore_errors: yes
-  changed_when: false
-
+# --------------------------
 # Health Checks
-- name: Wait for backend to be ready
+# --------------------------
+- name: Wait for backend API to be ready
   ansible.builtin.uri:
     url: http://localhost:5000/api/health
     status_code: 200
+    validate_certs: false
   register: backend_health
   until: backend_health.status == 200
   retries: 15
   delay: 5
-  ignore_errors: yes
+  ignore_errors: true
 
 - name: Wait for frontend to be ready
   ansible.builtin.uri:
     url: http://localhost
     status_code: 200
+    validate_certs: false
   register: frontend_health
   until: frontend_health.status == 200
   retries: 10
   delay: 3
-  ignore_errors: yes
+  ignore_errors: true
 
+# --------------------------
+# Deployment Summary
+# --------------------------
 - name: Display deployment information
   ansible.builtin.debug:
     msg:
-      - "✓ Backend API: http://{{ ansible_default_ipv4.address }}:5000/api"
-      - "✓ Frontend App: http://{{ ansible_default_ipv4.address }}"
-      - "✓ Health Check: http://{{ ansible_default_ipv4.address }}:5000/api/health"
+      - "✓ Backend API: http://{{ ansible_facts['default_ipv4']['address'] }}:5000/api"
+      - "✓ Frontend App: http://{{ ansible_facts['default_ipv4']['address'] }}"
+      - "✓ Health Check: http://{{ ansible_facts['default_ipv4']['address'] }}:5000/api/health"
       - "✓ Application deployed successfully!"

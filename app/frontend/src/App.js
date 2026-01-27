@@ -9,7 +9,7 @@ function App() {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   // Form state
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
@@ -20,7 +20,7 @@ function App() {
     due_date: ''
   });
   const [editingTask, setEditingTask] = useState(null);
-  
+
   // Filter state
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterPriority, setFilterPriority] = useState('all');
@@ -47,7 +47,7 @@ function App() {
 
       console.log('Fetched tasks:', tasksData);
       console.log('Tasks array:', tasksData.tasks);
-      
+
       setTasks(tasksData.tasks || []);
       setCategories(categoriesData.categories || []);
       setStats(statsData);
@@ -62,19 +62,19 @@ function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.title.trim()) {
       setError('Task title is required');
       return;
     }
-    
+
     try {
-      const url = editingTask 
+      const url = editingTask
         ? `${API_URL}/tasks/${editingTask.id}`
         : `${API_URL}/tasks`;
-      
+
       const method = editingTask ? 'PUT' : 'POST';
-      
+
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -96,7 +96,7 @@ function App() {
 
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this task?')) return;
-    
+
     try {
       const response = await fetch(`${API_URL}/tasks/${id}`, {
         method: 'DELETE'
@@ -161,13 +161,13 @@ function App() {
   const filteredTasks = tasks.filter(task => {
     const matchesCategory = filterCategory === 'all' || task.category === filterCategory;
     const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
-    const matchesCompleted = filterCompleted === 'all' || 
+    const matchesCompleted = filterCompleted === 'all' ||
       (filterCompleted === 'completed' && task.completed) ||
       (filterCompleted === 'pending' && !task.completed);
-    const matchesSearch = !searchTerm || 
+    const matchesSearch = !searchTerm ||
       task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (task.description && task.description.toLowerCase().includes(searchTerm.toLowerCase()));
-    
+
     return matchesCategory && matchesPriority && matchesCompleted && matchesSearch;
   });
 
@@ -227,13 +227,13 @@ function App() {
 
         {/* Controls */}
         <div className="controls">
-          <button 
+          <button
             className="btn btn-primary"
             onClick={() => setShowForm(!showForm)}
           >
             {showForm ? '✕ Cancel' : '+ Add Task'}
           </button>
-          
+
           <input
             type="text"
             className="search-input"
@@ -280,15 +280,15 @@ function App() {
                 value={formData.title}
                 onChange={(e) => setFormData({...formData, title: e.target.value})}
               />
-              
+
               <textarea
                 placeholder="Description (optional)"
                 value={formData.description}
                 onChange={(e) => setFormData({...formData, description: e.target.value})}
               />
-              
+
               <div className="form-row">
-                <select 
+                <select
                   value={formData.priority}
                   onChange={(e) => setFormData({...formData, priority: e.target.value})}
                 >
@@ -297,7 +297,7 @@ function App() {
                   <option value="high">High Priority</option>
                 </select>
 
-                <select 
+                <select
                   value={formData.category}
                   onChange={(e) => setFormData({...formData, category: e.target.value})}
                 >
@@ -343,18 +343,18 @@ function App() {
                     onChange={() => handleToggleComplete(task)}
                   />
                   <h3>{task.title}</h3>
-                  <span 
+                  <span
                     className="priority-badge"
                     style={{ backgroundColor: getPriorityColor(task.priority) }}
                   >
                     {task.priority}
                   </span>
                 </div>
-                
+
                 {task.description && (
                   <p className="task-description">{task.description}</p>
                 )}
-                
+
                 <div className="task-footer">
                   <span className="category-badge">{task.category}</span>
                   {task.due_date && (
@@ -363,15 +363,15 @@ function App() {
                     </span>
                   )}
                   <div className="task-actions">
-                    <button 
-                      onClick={() => handleEdit(task)} 
+                    <button
+                      onClick={() => handleEdit(task)}
                       className="btn-icon"
                       title="Edit task"
                     >
                       ✏️
                     </button>
-                    <button 
-                      onClick={() => handleDelete(task.id)} 
+                    <button
+                      onClick={() => handleDelete(task.id)}
                       className="btn-icon delete"
                       title="Delete task"
                     >

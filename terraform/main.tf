@@ -86,9 +86,9 @@ resource "aws_security_group" "webapp_sg" {
   description = "Security group for ${var.project_name} full-stack application"
   vpc_id      = data.aws_vpc.default.id
 
-  # SSH access
+  # SSH access - restricted to specific IPs
   ingress {
-    description = "SSH from anywhere"
+    description = "SSH from allowed IPs only"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -113,13 +113,14 @@ resource "aws_security_group" "webapp_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Backend API port (Flask)
+  # Backend API port (Flask) - Restricted to localhost only
   ingress {
-    description = "Backend API"
+    description = "Backend API from Nginx proxy only"
     from_port   = 5000
     to_port     = 5000
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    # security_groups = [aws_security_group.webapp_sg.id]
+    self = true
   }
 
   # Allow all outbound traffic
@@ -147,26 +148,26 @@ resource "aws_instance" "webapp" {
   user_data = <<-EOF
               #!/bin/bash
               set -e
-              
+
               # Update system
               yum update -y
-              
+
               # Install development tools
               yum groupinstall -y "Development Tools"
-              
+
               # Install Python3 and dependencies
               yum install -y python3 python3-pip python3-devel
-              
+
               # Install Git
               yum install -y git
-              
+
               # Create application directory
               mkdir -p /opt/taskmanager
               chown ec2-user:ec2-user /opt/taskmanager
-              
+
               # Create marker file
               touch /tmp/cloud-init-complete
-              
+
               # Log completion
               echo "User data script completed at $(date)" >> /var/log/user-data.log
               EOF

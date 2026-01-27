@@ -1,58 +1,45 @@
-# roles/webserver/handlers/main.yml
 ---
-# Handler to restart Nginx
-- name: restart nginx
-  ansible.builtin.service:
-    name: nginx
-    state: restarted
-  listen: restart nginx
+# Handlers for webserver role
 
-# Handler to reload Nginx
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+
+- name: restart backend
+  ansible.builtin.systemd:
+    name: taskmanager-backend
+    state: restarted
+  become: true
+
 - name: reload nginx
   ansible.builtin.service:
     name: nginx
     state: reloaded
-  listen: reload nginx
+  become: true
 
-# Handler to test Nginx configuration
+- name: restart nginx
+  ansible.builtin.service:
+    name: nginx
+    state: restarted
+  become: true
+
 - name: test nginx configuration
   ansible.builtin.command: nginx -t
   changed_when: false
-  listen: test nginx
+  become: true
 
-# Handler for safe Nginx restart
 - name: safe restart nginx
   block:
     - name: Test Nginx configuration
       ansible.builtin.command: nginx -t
       register: nginx_config_test
       changed_when: false
+      become: true
 
     - name: Restart Nginx if config is valid
       ansible.builtin.service:
         name: nginx
         state: restarted
       when: nginx_config_test.rc == 0
-  # Instead of 'listen' on block, we notify the task above
-  notify:
-    - restart nginx
-# Handlers for webapp role
-
-- name: reload systemd
-  ansible.builtin.systemd:
-    daemon_reload: yes
-
-- name: restart backend
-  ansible.builtin.systemd:
-    name: taskmanager-backend
-    state: restarted
-
-- name: restart nginx
-  ansible.builtin.service:
-    name: nginx
-    state: restarted
-
-- name: reload nginx
-  ansible.builtin.service:
-    name: nginx
-    state: reloaded
+      become: true

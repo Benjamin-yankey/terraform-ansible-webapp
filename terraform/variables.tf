@@ -72,14 +72,20 @@ variable "ssh_allowed_ips" {
   }
 }
 
-variable "enable_monitoring" {
-  description = "Enable detailed monitoring for EC2 instance"
+variable "enable_detailed_monitoring" {
+  description = "Enable detailed CloudWatch monitoring for EC2 instance"
   type        = bool
   default     = true
 }
 
-variable "common_tags" {
-  description = "Additional tags to apply to all resources"
-  type        = map(string)
-  default     = {}
+variable "enable_encryption" {
+  description = "Enable EBS encryption for volumes"
+  type        = bool
+  default     = true
+}
+
+variable "enable_monitoring" {
+  description = "Enable detailed monitoring for EC2 instance"
+  type        = bool
+  default     = true
 }
