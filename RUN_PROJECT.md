@@ -9,6 +9,7 @@ This is a **Terraform + Ansible Infrastructure-as-Code project** that deploys a 
 ## 🔧 PREREQUISITES
 
 ### System Requirements
+
 - **Terraform** v1.5.0+ ([install](https://developer.hashicorp.com/terraform/downloads))
 - **Ansible** 2.12+ ([install](https://docs.ansible.com/ansible/latest/installation_guide/))
 - **AWS Account** with credentials configured
@@ -17,6 +18,7 @@ This is a **Terraform + Ansible Infrastructure-as-Code project** that deploys a 
 - **SSH key pair** for EC2 access
 
 ### AWS Setup
+
 ```bash
 # Install AWS CLI
 brew install awscli
@@ -30,6 +32,7 @@ aws sts get-caller-identity
 ```
 
 ### Local Python Environment
+
 ```bash
 # Navigate to project
 cd /Users/huey/Desktop/Amalitech/terraform-ansible-webapp
@@ -49,6 +52,7 @@ pip install -r ansible/requirements.txt 2>/dev/null || pip install ansible terra
 ## 🚀 QUICK START (5-10 minutes)
 
 ### Step 1: Initialize Terraform
+
 ```bash
 cd terraform
 
@@ -63,6 +67,7 @@ terraform plan
 ```
 
 ### Step 2: Deploy Infrastructure
+
 ```bash
 # Create AWS resources (EC2, security groups, etc.)
 terraform apply
@@ -70,21 +75,23 @@ terraform apply
 # When prompted, type: yes
 # ⏱️ Wait ~2 minutes for completion
 
-# View outputs (public IP, instance details)
+# View outputs (public IP, instance details and helper commands)
 terraform output
 ```
 
 **Key outputs**:
-- `instance_public_ip` - Your EC2 instance's public IP
-- `instance_id` - AWS EC2 instance ID
-- `security_group_id` - AWS security group ID
+
+- `public_ip` - Your EC2 instance's public IP
+- `deployment_summary` - Grouped view of instance_id, public_ip, web_url, region, AZ
+- `webapp_url` - Direct URL to the deployed app
 
 ### Step 3: Configure Ansible Inventory
+
 ```bash
 cd ../ansible
 
 # Get the public IP from terraform output
-export INSTANCE_IP=$(cd ../terraform && terraform output -raw instance_public_ip)
+export INSTANCE_IP=$(cd ../terraform && terraform output -raw public_ip)
 
 # Create inventory file
 cat > inventory/hosts.ini <<EOF
@@ -97,6 +104,7 @@ ansible all -i inventory/hosts.ini -m ping
 ```
 
 ### Step 4: Deploy Application with Ansible
+
 ```bash
 # Run the deployment playbook
 ansible-playbook -i inventory/hosts.ini deploy.yml
@@ -106,9 +114,10 @@ ansible-playbook -i inventory/hosts.ini deploy.yml
 ```
 
 ### Step 5: Access Your Application
+
 ```bash
 # Get your public IP
-INSTANCE_IP=$(cd ../terraform && terraform output -raw instance_public_ip)
+INSTANCE_IP=$(cd ../terraform && terraform output -raw public_ip)
 
 # Open in browser
 # Frontend: http://$INSTANCE_IP
@@ -128,14 +137,13 @@ terraform-ansible-webapp/
 ├── terraform/                          # Infrastructure as Code
 │   ├── main.tf                         # EC2, security groups, networking
 │   ├── variables.tf                    # Input variables (customizable)
-│   ├── outputs.tf                      # Export instance details
-│   ├── terraform.tfvars                # Variable values (AWS region, SSH IPs, etc.)
-│   └── terraform.tfstate               # State file (don't edit manually)
+│   ├── outputs.tf                      # Export instance details and helper commands
+│   ├── terraform.tfvars.example        # Example variable values (copy to terraform.tfvars)
+│   └── terraform.tfstate               # State file (don't edit manually, path shown for reference)
 │
 ├── ansible/                            # Configuration Management
 │   ├── deploy.yml                      # Main playbook
 │   ├── monitoring-playbook.yml         # Audit logging & compliance
-│   ├── compliance-playbook.yml         # Security validation (planned)
 │   ├── ansible.cfg                     # Ansible configuration
 │   ├── .ansible-lint                   # Linting rules
 │   ├── inventory/
@@ -165,15 +173,7 @@ terraform-ansible-webapp/
 │
 ├── .pre-commit-config.yaml             # Git pre-commit hooks
 ├── .gitleaks.toml                      # Secret detection config
-├── .github/
-│   └── workflows/
-│       └── security-gates.yml          # CI/CD pipeline (GitHub Actions)
-│
-└── Documentation/
-    ├── SECURITY_IMPLEMENTATION_COMPLETE.md
-    ├── ANSIBLE_SECURITY_AUDIT.md
-    ├── MOLECULE_TESTING_FRAMEWORK.md
-    └── SHIFT_LEFT_SECURITY_POLICY_ENFORCEMENT.md
+└── ANSIBLE_OVERVIEW.md                 # High-level explanation of Ansible in this project
 ```
 
 ---
@@ -183,6 +183,7 @@ terraform-ansible-webapp/
 ### Phase 1: Infrastructure Setup (Terraform)
 
 #### 1.1 Customize Variables
+
 ```bash
 cd terraform
 
@@ -196,6 +197,7 @@ nano terraform.tfvars
 ```
 
 #### 1.2 Initialize & Plan
+
 ```bash
 # Download AWS provider plugins
 terraform init
@@ -209,6 +211,7 @@ cat tfplan.txt
 ```
 
 #### 1.3 Apply Infrastructure
+
 ```bash
 # Create actual AWS resources
 terraform apply -auto-approve
@@ -222,6 +225,7 @@ terraform output > ../terraform_outputs.txt
 ```
 
 #### 1.4 Verify AWS Resources
+
 ```bash
 # List created instances
 aws ec2 describe-instances --query 'Reservations[].Instances[].{IP:PublicIpAddress,ID:InstanceId,State:State.Name}'
@@ -235,11 +239,12 @@ aws ec2 describe-security-groups --query 'SecurityGroups[].{Name:GroupName,ID:Gr
 ### Phase 2: Ansible Deployment
 
 #### 2.1 Prepare Inventory
+
 ```bash
 cd ../ansible
 
 # Option A: Generate from Terraform output
-export INSTANCE_IP=$(cd ../terraform && terraform output -raw instance_public_ip)
+export INSTANCE_IP=$(cd ../terraform && terraform output -raw public_ip)
 export INSTANCE_ID=$(cd ../terraform && terraform output -raw instance_id)
 
 # Option B: Create manually
@@ -253,6 +258,7 @@ EOF
 ```
 
 #### 2.2 Test SSH Connectivity
+
 ```bash
 # Verify Ansible can reach the instance
 ansible all -i inventory/hosts.ini -m ping
@@ -264,6 +270,7 @@ ansible all -i inventory/hosts.ini -m ping
 ```
 
 #### 2.3 Run Deployment Playbook
+
 ```bash
 # Full deployment (30-60 seconds)
 ansible-playbook -i inventory/hosts.ini deploy.yml -v
@@ -272,9 +279,10 @@ ansible-playbook -i inventory/hosts.ini deploy.yml -v
 ```
 
 #### 2.4 Verify Deployment
+
 ```bash
 # Check if services are running
-ansible all -i inventory/hosts.ini -m shell -a "systemctl status nginx backend" | grep active
+ansible all -i inventory/hosts.ini -m shell -a "systemctl status nginx taskmanager-backend" | grep active
 
 # View logs
 ansible all -i inventory/hosts.ini -m shell -a "tail -20 /var/log/nginx/access.log"
@@ -285,9 +293,10 @@ ansible all -i inventory/hosts.ini -m shell -a "tail -20 /var/log/nginx/access.l
 ### Phase 3: Test the Application
 
 #### 3.1 Access Frontend
+
 ```bash
 # Get public IP
-INSTANCE_IP=$(cd terraform && terraform output -raw instance_public_ip)
+INSTANCE_IP=$(cd terraform && terraform output -raw public_ip)
 
 # Open in browser
 open http://$INSTANCE_IP
@@ -298,6 +307,7 @@ curl -I http://$INSTANCE_IP
 ```
 
 #### 3.2 Test Backend API
+
 ```bash
 # Health check endpoint
 curl http://$INSTANCE_IP:5000/api/health
@@ -310,6 +320,7 @@ ansible all -i inventory/hosts.ini -m shell -a "tail -20 /var/log/webapp/app.log
 ```
 
 #### 3.3 Test Security Headers
+
 ```bash
 # Check that security headers are set
 curl -I http://$INSTANCE_IP | grep -E "X-Content-Type-Options|X-Frame-Options|Strict-Transport-Security"
@@ -325,6 +336,7 @@ curl -I http://$INSTANCE_IP | grep -E "X-Content-Type-Options|X-Frame-Options|St
 ## 🔒 OPTIONAL: Security Enhancements
 
 ### Enable Pre-Commit Hooks (Local)
+
 ```bash
 # Install dependencies
 pip install pre-commit ansible-lint yamllint
@@ -339,6 +351,7 @@ pre-commit run --all-files
 ```
 
 ### Deploy Audit Logging
+
 ```bash
 # Configure system audit and compliance monitoring
 ansible-playbook -i inventory/hosts.ini monitoring-playbook.yml
@@ -348,6 +361,7 @@ ansible all -i inventory/hosts.ini -m shell -a "ls -la /var/log/audit/"
 ```
 
 ### Enable Threat Detection
+
 ```bash
 # Deploy threat monitoring script
 ansible all -i inventory/hosts.ini -m copy -a "src=roles/webserver/files/threat-detection.sh dest=/opt/monitoring/threat-detection.sh mode=0755" -b
@@ -364,6 +378,7 @@ ansible all -i inventory/hosts.ini -m shell -a "tail -f /var/log/webapp/threats.
 ## 🧹 CLEANUP & DESTROY
 
 ### Destroy AWS Resources (Free Up Costs)
+
 ```bash
 cd terraform
 
@@ -380,6 +395,7 @@ aws ec2 describe-instances --query 'Reservations[].Instances[].State.Name' | gre
 ```
 
 ### Cleanup Local State
+
 ```bash
 # Remove terraform state files
 rm -f terraform.tfstate* .terraform.lock.hcl
@@ -396,6 +412,7 @@ rm -rf .ansible/
 ## 📊 MONITORING & LOGS
 
 ### View Application Logs
+
 ```bash
 # Backend Flask logs
 ansible all -i inventory/hosts.ini -m shell -a "tail -50 /var/log/webapp/app.log" -b
@@ -408,6 +425,7 @@ ansible all -i inventory/hosts.ini -m shell -a "tail -50 /var/log/nginx/error.lo
 ```
 
 ### Check System Health
+
 ```bash
 # CPU & memory usage
 ansible all -i inventory/hosts.ini -m shell -a "top -bn1 | head -20" -b
@@ -420,6 +438,7 @@ ansible all -i inventory/hosts.ini -m shell -a "ss -tlnp" -b
 ```
 
 ### Security Checks
+
 ```bash
 # View firewall rules
 ansible all -i inventory/hosts.ini -m shell -a "firewall-cmd --list-all" -b
@@ -436,6 +455,7 @@ ansible all -i inventory/hosts.ini -m shell -a "grep -E 'PermitRootLogin|Passwor
 ## 🐛 TROUBLESHOOTING
 
 ### Issue: Terraform Init Fails
+
 ```bash
 # Solution: Check AWS credentials
 aws sts get-caller-identity
@@ -445,6 +465,7 @@ aws configure
 ```
 
 ### Issue: Ansible Can't Connect
+
 ```bash
 # Check SSH key permissions
 ls -la ~/.ssh/webapp-key.pem
@@ -458,18 +479,20 @@ aws ec2 describe-security-groups --group-ids sg-xxxxx
 ```
 
 ### Issue: Application Not Responding
+
 ```bash
 # Check if services are running
-ansible all -i inventory/hosts.ini -m shell -a "systemctl status nginx backend" -b
+ansible all -i inventory/hosts.ini -m shell -a "systemctl status nginx taskmanager-backend" -b
 
 # View error logs
-ansible all -i inventory/hosts.ini -m shell -a "journalctl -u backend -n 50" -b
+ansible all -i inventory/hosts.ini -m shell -a "journalctl -u taskmanager-backend -n 50" -b
 
 # Check port 80/443/5000
 ansible all -i inventory/hosts.ini -m shell -a "netstat -tlnp | grep LISTEN" -b
 ```
 
 ### Issue: Ansible Playbook Fails
+
 ```bash
 # Run with verbose output
 ansible-playbook -i inventory/hosts.ini deploy.yml -vvv
@@ -486,6 +509,7 @@ ansible-playbook -i inventory/hosts.ini deploy.yml --tags webserver
 ## 📈 COMMON TASKS
 
 ### Update Application Code
+
 ```bash
 # Edit app files locally
 nano app/backend/app.py
@@ -496,6 +520,7 @@ ansible-playbook -i inventory/hosts.ini deploy.yml --tags app
 ```
 
 ### Scale Up Instance
+
 ```bash
 # Edit variables
 nano terraform/terraform.tfvars
@@ -509,6 +534,7 @@ terraform apply
 ```
 
 ### Add Custom Configuration
+
 ```bash
 # Edit Ansible role
 nano ansible/roles/webserver/tasks/main.yml
@@ -521,12 +547,49 @@ ansible-playbook -i inventory/hosts.ini deploy.yml
 ```
 
 ### Backup Application State
-```bash
-# Export database
-ansible all -i inventory/hosts.ini -m shell -a "cp /opt/webapp/database.db /tmp/backup.db" -b
+
+````bash
+# Export SQLite task database from the server
+ansible all -i inventory/hosts.ini -m shell -a "cp /opt/taskmanager/backend/tasks.db /tmp/tasks-backup.db" -b
 
 # Download to local machine
-ansible all -i inventory/hosts.ini -m fetch -a "src=/tmp/backup.db dest=./backups/" -b
+ansible all -i inventory/hosts.ini -m fetch -a "src=/tmp/tasks-backup.db dest=./backups/ flat=yes" -b
+
+### Access the Task Database (SQLite)
+
+The backend uses a local **SQLite** database stored on the EC2 instance.
+
+- **Database file path on the server**: `/opt/taskmanager/backend/tasks.db`
+
+To inspect or query the database:
+
+```bash
+# 1) Get the SSH command Terraform generated for you
+cd terraform
+terraform output -raw ssh_command
+# Copy and run the printed ssh command, for example:
+# ssh -i /absolute/path/to/key.pem ec2-user@YOUR_PUBLIC_IP
+
+# 2) On the EC2 instance, open the SQLite database
+cd /opt/taskmanager/backend
+sqlite3 tasks.db
+
+# Inside the sqlite3 shell:
+.tables          -- list tables (Task, Category, etc.)
+PRAGMA table_info('Task');
+SELECT * FROM Task LIMIT 5;
+
+# Exit sqlite3
+.quit
+````
+
+To copy the raw database file to your local machine without Ansible you can also:
+
+```bash
+# From your local machine (after getting PUBLIC_IP and key path from terraform output)
+scp -i /absolute/path/to/key.pem ec2-user@PUBLIC_IP:/opt/taskmanager/backend/tasks.db ./tasks.db
+```
+
 ```
 
 ---
@@ -585,3 +648,4 @@ After deployment, verify:
 **Last Updated**: 2026-01-27
 **Project Status**: Production Ready
 **Estimated Time**: 15-30 minutes for full deployment
+```

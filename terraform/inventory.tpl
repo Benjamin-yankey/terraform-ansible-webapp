@@ -2,7 +2,7 @@
 # Do not edit manually - this file is managed by Terraform
 
 [webservers]
-${public_ip}
+webapp ansible_host=${public_ip}
 
 [webservers:vars]
 ansible_user=${ssh_user}
